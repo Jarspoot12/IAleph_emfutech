@@ -1,0 +1,10 @@
+ultralytics         # Para YOLOv8
+opencv-python       # Para captura y procesamiento de video
+deep_sort_realtime  # O la implementación de Deep SORT de tu preferencia
+torch               # Para modelos en PyTorch (Mask R-CNN, YOLOv8)
+torchvision         # Para modelos preentrenados, como Mask R-CNN
+tensorflow          # (Si usas modelos basados en TensorFlow para edad/género)
+keras               # Para modelos preentrenados en clasificación facial
+deepface            # (Opcional) Para análisis facial (edad, género, emoción)
+fer                 # O librería específica para reconocimiento de emociones
+tf-keras
