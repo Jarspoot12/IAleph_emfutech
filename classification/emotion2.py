@@ -1,51 +1,66 @@
-from keras.models import load_model  # TensorFlow is required for Keras to work
-import cv2  # Install opencv-python
+from tensorflow.keras.models import load_model  # Usamos tf.keras para garantizar compatibilidad
+from tensorflow.keras.layers import DepthwiseConv2D as BaseDepthwiseConv2D
+from tensorflow.keras.utils import get_custom_objects
+import cv2
 import numpy as np
 
-# Disable scientific notation for clarity
+# Deshabilitar la notación científica para mayor claridad (opcional)
 np.set_printoptions(suppress=True)
 
-# Load the model
-model = load_model("keras_Model.h5", compile=False)
+# Definimos una clase personalizada que ignora el argumento "groups"
+class DepthwiseConv2DCompat(BaseDepthwiseConv2D):
+    def __init__(self, **kwargs):
+        # Eliminar "groups" de los argumentos si existe
+        kwargs.pop("groups", None)
+        super().__init__(**kwargs)
 
-# Load the labels
-class_names = open("labels.txt", "r").readlines()
+# Registrar la clase personalizada con el nombre que espera el modelo (usualmente "DepthwiseConv2D")
+get_custom_objects()["DepthwiseConv2D"] = DepthwiseConv2DCompat
 
-# CAMERA can be 0 or 1 based on default camera of your computer
-camera = cv2.VideoCapture(0)
+# Cargar el modelo usando el diccionario de objetos personalizados
+model = load_model("keras_model_emotion.h5", compile=False)
 
-while True:
-    # Grab the webcamera's image.
-    ret, image = camera.read()
+# Cargar las etiquetas (asegúrate que "labels_emotion.txt" tenga una etiqueta por línea)
+with open("labels_emotion.txt", "r") as f:
+    emotion_labels = [line.strip() for line in f.readlines()]
 
-    # Resize the raw image into (224-height,224-width) pixels
-    image = cv2.resize(image, (224, 224), interpolation=cv2.INTER_AREA)
+def reconocer_emocion(face_img):
+    """
+    Detecta la emoción predominante en la imagen del rostro, usando el modelo Keras.
+    
+    Parámetros:
+      - face_img: Imagen del rostro (numpy array). Se espera que sea la ROI extraída desde el frame.
+    
+    Retorna:
+      - emoción: La emoción detectada (cadena de texto).
+      - confidence: La confianza de la predicción (valor entre 0 y 1).
+    """
+    # Redimensionar la imagen a 224x224 (tamaño de entrada del modelo)
+    img = cv2.resize(face_img, (224, 224), interpolation=cv2.INTER_AREA)
+    # Convertir la imagen a float32 y cambiar la forma para tener dimensión de batch
+    img = np.asarray(img, dtype=np.float32).reshape(1, 224, 224, 3)
+    # Normalizar la imagen (esto depende de cómo se entrenó el modelo; aquí se asume una escala de -1 a 1)
+    img = (img / 127.5) - 1
+    # Ejecutar la predicción
+    prediction = model.predict(img, verbose=0)
+    index = int(np.argmax(prediction))
+    emotion = emotion_labels[index]
+    # confidence = float(prediction[0][index])
+    return emotion
 
-    # Show the image in a window
-    cv2.imshow("Webcam Image", image)
-
-    # Make the image a numpy array and reshape it to the models input shape.
-    image = np.asarray(image, dtype=np.float32).reshape(1, 224, 224, 3)
-
-    # Normalize the image array
-    image = (image / 127.5) - 1
-
-    # Predicts the model
-    prediction = model.predict(image)
-    index = np.argmax(prediction)
-    class_name = class_names[index]
-    confidence_score = prediction[0][index]
-
-    # Print prediction and confidence score
-    print("Class:", class_name[2:], end="")
-    print("Confidence Score:", str(np.round(confidence_score * 100))[:-2], "%")
-
-    # Listen to the keyboard for presses.
-    keyboard_input = cv2.waitKey(1)
-
-    # 27 is the ASCII for the esc key on your keyboard.
-    if keyboard_input == 27:
-        break
-
-camera.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    # Bloque de prueba: Captura desde la cámara para ver el resultado en tiempo real.
+    camera = cv2.VideoCapture(0)
+    while True:
+        ret, image = camera.read()
+        if not ret:
+            break
+        # Opcional: redimensionar la imagen para visualización
+        image_disp = cv2.resize(image, (224, 224))
+        cv2.imshow("Webcam Image", image_disp)
+        emotion, conf = reconocer_emocion(image)
+        print("Emotion:", emotion, "Confidence:", conf)
+        if cv2.waitKey(1) & 0xFF == 27:
+            break
+    camera.release()
+    cv2.destroyAllWindows()

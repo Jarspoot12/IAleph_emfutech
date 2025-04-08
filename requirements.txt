@@ -8,3 +8,5 @@ keras               # Para modelos preentrenados en clasificación facial
 deepface            # (Opcional) Para análisis facial (edad, género, emoción)
 fer                 # O librería específica para reconocimiento de emociones
 tf-keras
+onnx
+onnxruntime

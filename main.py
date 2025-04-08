@@ -1,104 +1,205 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Deshabilita GPU
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import cv2
 import time
+import threading
+import queue
+import json
 
-# Importar las funciones de cada módulo
+# Importar las funciones de cada módulo (ajusta las rutas según corresponda)
 from detectors.yolo2 import detectar_personas
 from tracking.tracker import actualizar_tracker
 from classification.age_gender import clasificar_edad_genero
-from classification.emotion import reconocer_emocion
-from segmentation.mask_rcnn import segmentar_productos
-# -------------------------------
-# Configuración de la Captura de Video
-# -------------------------------
-# Inicializar la cámara (ID 0 es la cámara predeterminada)
-cap = cv2.VideoCapture(0)
-# Establecer la resolución a 640x480 para optimizar el rendimiento
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+from classification.emotion2 import reconocer_emocion
+from segmentation.segmentation2 import segmentar_productos
 
-while True:
-    # Capturar un frame de la cámara
-    ret, frame = cap.read()
-    if not ret:
-        print("No se pudo capturar el frame.")
-        break
+# Parámetros globales
+CAPTURE_WIDTH = 640
+CAPTURE_HEIGHT = 480
+PROCESS_WIDTH = 240    # Resolución baja para procesamiento pesado
+PROCESS_HEIGHT = 180
+DETECTION_EVERY_N_FRAME = 8    # Actualizar boxes cada 8 frames
+CLASSIFICATION_EVERY_N_FRAME = 20  # Ejecutar inferencia pesada cada 20 frames
+DISAPPEAR_THRESHOLD = 0.0  # Usaremos detección actual para dibujar boxes
 
-    # -------------------------------
-    # Paso A: Detección de Personas con YOLOv8
-    # -------------------------------
-    # Ejecutar el detector y obtener la lista de bounding boxes para personas
-    detecciones, _ = detectar_personas(frame)
+# Cola para enviar frames para inferencia pesada
+heavy_frame_queue = queue.Queue(maxsize=5)
+# Variable global (protegida por lock) para almacenar los resultados pesados actuales
+last_registros = []
+lock = threading.Lock()
+# Diccionario para cachear la clasificación por ID (edad y género se mantienen; emoción se actualiza)
+person_cache = {}
+# (Opcional) Lock para cajas si se requiere separar la actualización de "current_boxes"
+boxes_lock = threading.Lock()
+current_boxes = []  # Para actualización rápida de boxes (detección y tracking) cada DETECTION_EVERY_N_FRAME
 
-    # -------------------------------
-    # Paso B: Actualización del Tracker (Deep SORT)
-    # -------------------------------
-    # Se asigna un ID único a cada persona detectada para mantener el seguimiento
-    personas = actualizar_tracker(detecciones, frame)
-    resultados_finales = []  # Lista para almacenar la información combinada por persona
-
-    # Procesar cada persona trackeada
-    for persona in personas:
-        # Obtener las coordenadas del bounding box y convertirlas a enteros
-        x1, y1, x2, y2 = map(int, persona['bbox'])
-        # Extraer la región de interés (ROI) correspondiente a la persona
-        roi = frame[y1:y2, x1:x2]
-        
-        # -------------------------------
-        # Paso C: Clasificación de Edad y Género (DeepFace)
-        # -------------------------------
-        result_deepface = None
+def heavy_classification_worker():
+    """
+    Hilo que procesa frames para inferencia pesada (clasificación, segmentación) cada CLASSIFICATION_EVERY_N_FRAME.
+    Actualiza la caché y genera una salida JSON con la información: ID, edad, género, emoción, productos.
+    """
+    global last_registros, person_cache
+    MIN_ROI_SIZE = 20
+    while True:
         try:
-            result_deepface = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-        except Exception as e:
-            print("Error en conversión de color:", e)
-        edad, genero = clasificar_edad_genero(roi)
-        
-        # -------------------------------
-        # Paso D: Reconocimiento de Emociones (FER)
-        # -------------------------------
-        resultado_emocion = reconocer_emocion(roi)
-        emocion = resultado_emocion if resultado_emocion else "Sin detección"
-        
-        # -------------------------------
-        # Paso E: Segmentación de Productos (Mask R-CNN)
-        # -------------------------------
-        productos = segmentar_productos(roi)
-        
-        # Crear un registro con toda la información obtenida para la persona actual
-        registro = {
-            "id": persona['id'],           # ID asignado por el tracker
-            "bbox": persona['bbox'],         # Bounding box [x1, y1, x2, y2]
-            "edad": edad,                  # Edad predicha
-            "genero": genero,              # Género predicho
-            "emocion": emocion,            # Emoción detectada
-            "productos": productos,        # Lista de productos segmentados en la ROI
-            # Agregar un timestamp en formato UTC (ISO 8601)
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        }
-        resultados_finales.append(registro)
+            frame = heavy_frame_queue.get(timeout=1)
+        except queue.Empty:
+            continue
 
-    # -------------------------------
-    # Paso F: Visualización de Resultados en el Frame
-    # -------------------------------
-    # Dibujar los bounding boxes y etiquetas sobre el frame original
-    for r in resultados_finales:
-        x1, y1, x2, y2 = map(int, r["bbox"])
-        # Dibujar un rectángulo verde alrededor de la persona
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        # Crear una etiqueta que incluya ID, género, edad y emoción
-        etiqueta = f"ID: {r['id']} {r['genero']}, {r['edad']}, {r['emocion']}"
-        # Escribir la etiqueta justo arriba del rectángulo
-        cv2.putText(frame, etiqueta, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        detecciones, _ = detectar_personas(frame)
+        personas = actualizar_tracker(detecciones, frame)
+        resultados = []
 
-    # Mostrar el frame anotado en una ventana
-    cv2.imshow("Predicciones en Tiempo Real", frame)
-    
-    # Esperar 1 ms para detectar la pulsación de 'q' y salir del bucle si se presiona
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        for persona in personas:
+            x1, y1, x2, y2 = map(int, persona['bbox'])
+            if (x2 - x1) < MIN_ROI_SIZE or (y2 - y1) < MIN_ROI_SIZE:
+                continue
+            roi = frame[y1:y2, x1:x2]
+            if roi.size == 0:
+                continue
+            person_id = persona['id']
 
-# -------------------------------
-# Liberar Recursos y Cerrar Ventanas
-# -------------------------------
-cap.release()            # Liberar la cámara
-cv2.destroyAllWindows()  # Cerrar todas las ventanas de OpenCV
+            # Actualizar clasificación:
+            try:
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+            except Exception as e:
+                print("Error en conversión de color (heavy):", e)
+                roi_rgb = roi
+            roi_resized = cv2.resize(roi_rgb, (112, 112))
+            if person_id in person_cache:
+                cached = person_cache[person_id]
+                edad = cached['edad']
+                genero = cached['genero']
+                try:
+                    emocion = reconocer_emocion(roi_resized)
+                    if not emocion:
+                        emocion = "Sin detección"
+                except Exception as e:
+                    print("Error en reconocimiento de emoción (heavy):", e)
+                    emocion = "Sin detección"
+                person_cache[person_id]['emocion'] = emocion
+            else:
+                try:
+                    edad, genero = clasificar_edad_genero(roi_resized)
+                except Exception as e:
+                    print("Error en clasificación de edad/género (heavy):", e)
+                    edad, genero = "Desconocido", "Desconocido"
+                try:
+                    emocion = reconocer_emocion(roi_resized)
+                    if not emocion:
+                        emocion = "Sin detección"
+                except Exception as e:
+                    print("Error en reconocimiento de emoción (heavy):", e)
+                    emocion = "Sin detección"
+                person_cache[person_id] = {'edad': edad, 'genero': genero, 'emocion': emocion}
+
+            # Actualizar productos usando el modelo de Keras (entrenado con Teachable Machine o reentrenado para 5 clases)
+            try:
+                nuevos_productos = segmentar_productos(roi)
+            except Exception as e:
+                print("Error en segmentación de productos (heavy):", e)
+                nuevos_productos = []
+            # Reescribe la lista de productos con la detección actual:
+            productos = nuevos_productos
+
+            registro = {
+                "id": person_id,
+                "bbox": persona['bbox'],  # Coordenadas en el frame reducido
+                "edad": edad,
+                "genero": genero,
+                "emocion": emocion,
+                "productos": productos,
+                "timestamp": time.time()
+            }
+            resultados.append(registro)
+        with lock:
+            last_registros = resultados
+
+        # Genera salida JSON (puedes elegir imprimirla o guardarla en un archivo)
+        output_json = json.dumps(
+            [{"id": r["id"],
+              "edad": r["edad"],
+              "genero": r["genero"],
+              "emocion": r["emocion"],
+              "productos": r["productos"]}
+             for r in resultados],
+            indent=2
+        )
+        print("Heavy Frame JSON Output:")
+        print(output_json)
+
+        heavy_frame_queue.task_done()
+
+def main():
+    global last_registros, current_boxes, person_cache
+    cap = cv2.VideoCapture(2)
+    # Si usas una cámara secundaria, cambia el índice (ej: 2)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_HEIGHT)
+    frame_count = 0
+
+    heavy_thread = threading.Thread(target=heavy_classification_worker, daemon=True)
+    heavy_thread.start()
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("No se pudo capturar el frame.")
+            break
+
+        frame_count += 1
+        display_frame = frame.copy()
+
+        # Actualización de boxes (detección y tracking) cada DETECTION_EVERY_N_FRAME
+        if frame_count % DETECTION_EVERY_N_FRAME == 0:
+            frame_proc = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
+            detecciones, _ = detectar_personas(frame_proc)
+            personas = actualizar_tracker(detecciones, frame_proc)
+            with boxes_lock:
+                current_boxes = personas
+
+        # Envío de frame para inferencia pesada cada CLASSIFICATION_EVERY_N_FRAME
+        if frame_count % CLASSIFICATION_EVERY_N_FRAME == 0:
+            frame_proc = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
+            try:
+                heavy_frame_queue.put(frame_proc, timeout=0.05)
+            except queue.Full:
+                pass
+
+        # Dibujar boxes de current_boxes (detección/tracking) para mayor fluidez
+        with boxes_lock:
+            boxes_to_draw = current_boxes.copy()
+        scale_x = CAPTURE_WIDTH / PROCESS_WIDTH
+        scale_y = CAPTURE_HEIGHT / PROCESS_HEIGHT
+        for persona in boxes_to_draw:
+            x1, y1, x2, y2 = map(int, persona["bbox"])
+            x1 = int(x1 * scale_x)
+            x2 = int(x2 * scale_x)
+            y1 = int(y1 * scale_y)
+            y2 = int(y2 * scale_y)
+            # Dibujar solo si el box es válido (no dummy)
+            if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
+                continue
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            pid = persona["id"]
+            if pid in person_cache:
+                info = person_cache[pid]
+                etiqueta = f"ID: {pid} {info['genero']}, {info['edad']}, {info['emocion']}"
+            else:
+                etiqueta = f"ID: {pid} Cargando..."
+            cv2.putText(display_frame, etiqueta, (x1, y1 - 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        cv2.imshow("Predicciones en Tiempo Real", display_frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    # Se define boxes_lock para proteger current_boxes
+    boxes_lock = threading.Lock()
+    main()

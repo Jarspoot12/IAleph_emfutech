@@ -1,7 +1,7 @@
 from deep_sort_realtime.deepsort_tracker import DeepSort
 
 # Inicializar el tracker Deep SORT con un parámetro 'max_age' para definir el tiempo de retención de tracks
-tracker = DeepSort(max_age=30)
+tracker = DeepSort(max_age=500)
 
 def actualizar_tracker(detecciones, frame):
     """

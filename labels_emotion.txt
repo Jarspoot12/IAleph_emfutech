@@ -1,0 +1,3 @@
+0 enojado
+1 feliz
+2 neutral

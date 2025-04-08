@@ -14,18 +14,22 @@ def clasificar_edad_genero(face_img):
     
     Retorna:
       - edad: Edad predicha (o 'Desconocido' si no se detecta).
-      - genero: Género predicho (o 'Desconocido' si no se detecta).
+      - genero dominante: Género predicho (o 'Desconocido' si no se detecta).
     """
-    # Analiza la imagen usando DeepFace para extraer edad y género
-    result = DeepFace.analyze(face_img, actions=['age', 'gender', 'emotion'], enforce_detection=False)
-    edad = result[0]['age']
-    genero = result[0]['dominant_gender']
-    
-    # return edad, genero
-    return edad, genero
+    try:
+        result = DeepFace.analyze(face_img, actions=['age', 'gender'], enforce_detection=False)  
+        # Si DeepFace devuelve una lista, tomar el primer elemento
+        if isinstance(result, list):
+            result = result[0]
+            edad = result.get("age", "Desconocido")
+            genero = result.get("dominant_gender", "Desconocido")
+        return edad, genero
+    except Exception as e:
+        print("Error en el análisis:", e)
+        return "Sin detección"
+
 # Bloque de prueba (se ejecuta solo si se corre este archivo directamente)
 if __name__ == "__main__":
     face = cv2.imread('/home/jared/Desktop/IAleph/samples/imagen_prueba.jpg')
     edad, genero = clasificar_edad_genero(face)
     print(f"Edad: {edad}, Género: {genero}")
-    # print(clasificar_edad_genero(face))

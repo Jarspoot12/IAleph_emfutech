@@ -1,0 +1,14 @@
+path: /home/jared/Desktop/IAleph/dataset
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 3
+names: ['Blind_box', 'Lemon_sapporo', 'Shoes']
+
+roboflow:
+  workspace: productdetection-qf4rf
+  project: my-first-project-3rgrw
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/productdetection-qf4rf/my-first-project-3rgrw/dataset/2
