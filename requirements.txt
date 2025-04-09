@@ -10,3 +10,4 @@ fer                 # O librería específica para reconocimiento de emociones
 tf-keras
 onnx
 onnxruntime
+pymongo

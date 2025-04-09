@@ -7,6 +7,7 @@ import time
 import threading
 import queue
 import json
+from pymongo import MongoClient
 
 # Importar las funciones de cada módulo (ajusta las rutas según corresponda)
 from detectors.yolo2 import detectar_personas
@@ -42,6 +43,15 @@ def heavy_classification_worker():
     """
     global last_registros, person_cache
     MIN_ROI_SIZE = 20
+
+    
+    # Configuración de la conexión a MongoDB
+    connection_string = "mongodb+srv://ialeph:ialeph11@ialeph.yy6gxxd.mongodb.net/?retryWrites=true&w=majority&appName=IAleph"
+    client = MongoClient(connection_string)
+    ialeph_db = client["IAleph"]
+    collection = ialeph_db["ialephdb"]
+
+
     while True:
         try:
             frame = heavy_frame_queue.get(timeout=1)
@@ -129,12 +139,15 @@ def heavy_classification_worker():
         )
         print("Heavy Frame JSON Output:")
         print(output_json)
+        
+         # Inserta registros en MongoDB
+        collection.insert_many(output_json)
 
         heavy_frame_queue.task_done()
 
 def main():
     global last_registros, current_boxes, person_cache
-    cap = cv2.VideoCapture(2)
+    cap = cv2.VideoCapture(0)
     # Si usas una cámara secundaria, cambia el índice (ej: 2)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_HEIGHT)
