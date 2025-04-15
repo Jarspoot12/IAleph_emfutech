@@ -9,11 +9,11 @@ import queue
 import json
 
 # Importar las funciones de cada módulo (ajusta las rutas según corresponda)
-from detectors.yolo2 import detectar_personas
+from detectors.yolov8m import detectar_personas
 from tracking.tracker import actualizar_tracker
 from classification.age_gender import clasificar_edad_genero
-from classification.emotion2 import reconocer_emocion
-from segmentation.segmentation2 import segmentar_productos
+from classification.emotion import reconocer_emocion
+from segmentation.segmentation import segmentar_productos
 
 # Parámetros globales
 CAPTURE_WIDTH = 640
@@ -21,7 +21,7 @@ CAPTURE_HEIGHT = 480
 PROCESS_WIDTH = 240    # Resolución baja para procesamiento pesado
 PROCESS_HEIGHT = 180
 DETECTION_EVERY_N_FRAME = 8    # Actualizar boxes cada 8 frames
-CLASSIFICATION_EVERY_N_FRAME = 20  # Ejecutar inferencia pesada cada 20 frames
+CLASSIFICATION_EVERY_N_FRAME = 30  # Ejecutar inferencia pesada cada 20 frames
 DISAPPEAR_THRESHOLD = 0.0  # Usaremos detección actual para dibujar boxes
 
 # Cola para enviar frames para inferencia pesada
@@ -48,7 +48,7 @@ def heavy_classification_worker():
         except queue.Empty:
             continue
 
-        detecciones, _ = detectar_personas(frame)
+        detecciones = detectar_personas(frame)
         personas = actualizar_tracker(detecciones, frame)
         resultados = []
 
@@ -155,7 +155,7 @@ def main():
         # Actualización de boxes (detección y tracking) cada DETECTION_EVERY_N_FRAME
         if frame_count % DETECTION_EVERY_N_FRAME == 0:
             frame_proc = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
-            detecciones, _ = detectar_personas(frame_proc)
+            detecciones = detectar_personas(frame_proc)
             personas = actualizar_tracker(detecciones, frame_proc)
             with boxes_lock:
                 current_boxes = personas
