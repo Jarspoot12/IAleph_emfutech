@@ -1,5 +1,5 @@
 env/
 __pycache__
-tracking/fast-reid/
-tracking/TransReID/
-tracking/transreid_weights/
+# tracking/fast-reid/
+# tracking/TransReID/
+# tracking/transreid_weights/
