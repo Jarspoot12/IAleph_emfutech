@@ -1,5 +1,6 @@
 env/
 __pycache__
-# tracking/fast-reid/
-# tracking/TransReID/
-# tracking/transreid_weights/
+tracking/transreid_weights
+tracking/market_bot_R50-ibn.pth
+tracking/market_bot_R50.pth
+tracking/market_agw_R50.pth
