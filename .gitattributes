@@ -1,0 +1,4 @@
+tracking/fast-reid filter=lfs diff=lfs merge=lfs -text
+tracking/TransReID filter=lfs diff=lfs merge=lfs -text
+tracking/transreid_weights filter=lfs diff=lfs merge=lfs -text
+tracking/*.pth filter=lfs diff=lfs merge=lfs -text

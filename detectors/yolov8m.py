@@ -2,7 +2,7 @@ import cv2
 from ultralytics import YOLO
 
 # Cargar el modelo YOLOv8 (versión ligera para mayor velocidad)
-yolo_model = YOLO('yolov8m.pt')
+yolo_model = YOLO('yolov8n.pt')
 
 def detectar_personas(frame):
     """
@@ -26,7 +26,7 @@ def detectar_personas(frame):
                                     result.boxes.conf.cpu().numpy(),
                                     result.boxes.cls.cpu().numpy()):
             # Suponiendo que la clase 0 corresponde a "persona"
-            if int(cls) == 0 and float(conf) > 0.85:
+            if int(cls) == 0 and float(conf) > 0.8:
                 # Convertir la caja a lista y empaquetar con la confianza y la clase
                 detecciones.append((box.tolist(), float(conf), int(cls)))
     

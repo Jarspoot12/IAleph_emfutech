@@ -10,7 +10,7 @@ import json
 
 # Importar las funciones de cada módulo (ajusta las rutas según corresponda)
 from detectors.yolov8m import detectar_personas
-from tracking.tracker import actualizar_tracker
+from tracking.tracker2 import actualizar_tracker
 from classification.age_gender import clasificar_edad_genero
 from classification.emotion import reconocer_emocion
 from segmentation.segmentation import segmentar_productos
@@ -18,8 +18,8 @@ from segmentation.segmentation import segmentar_productos
 # Parámetros globales
 CAPTURE_WIDTH = 640
 CAPTURE_HEIGHT = 480
-PROCESS_WIDTH = 240    # Resolución baja para procesamiento pesado
-PROCESS_HEIGHT = 180
+PROCESS_WIDTH = 640    # Resolución baja para procesamiento pesado
+PROCESS_HEIGHT = 480
 DETECTION_EVERY_N_FRAME = 8    # Actualizar boxes cada 8 frames
 CLASSIFICATION_EVERY_N_FRAME = 30  # Ejecutar inferencia pesada cada 20 frames
 DISAPPEAR_THRESHOLD = 0.0  # Usaremos detección actual para dibujar boxes
@@ -171,14 +171,14 @@ def main():
         # Dibujar boxes de current_boxes (detección/tracking) para mayor fluidez
         with boxes_lock:
             boxes_to_draw = current_boxes.copy()
-        scale_x = CAPTURE_WIDTH / PROCESS_WIDTH
-        scale_y = CAPTURE_HEIGHT / PROCESS_HEIGHT
+        # scale_x = CAPTURE_WIDTH / PROCESS_WIDTH
+        # scale_y = CAPTURE_HEIGHT / PROCESS_HEIGHT
         for persona in boxes_to_draw:
             x1, y1, x2, y2 = map(int, persona["bbox"])
-            x1 = int(x1 * scale_x)
-            x2 = int(x2 * scale_x)
-            y1 = int(y1 * scale_y)
-            y2 = int(y2 * scale_y)
+            x1 = int(x1)
+            x2 = int(x2)
+            y1 = int(y1)
+            y2 = int(y2)
             # Dibujar solo si el box es válido (no dummy)
             if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
                 continue
