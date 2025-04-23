@@ -131,3 +131,6 @@ def actualizar_tracker(dets, frame, cam_id):
             last_seen[local2global[key]] = frame_global
 
     return personas
+
+
+
