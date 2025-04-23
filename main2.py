@@ -18,7 +18,8 @@ import json
 
 # Importar módulos (ajusta rutas según tu estructura)
 from detectors.yolov8m import detectar_personas
-from tracking.tracker_fastreid import actualizar_tracker  # Tracker modificado que utiliza FastReID para asignar IDs globales.
+# from tracking.tracker_fastreid import actualizar_tracker  # Tracker modificado que utiliza FastReID para asignar IDs globales.
+from tracking.tracker_deepface import actualizar_tracker
 from classification.age_gender import clasificar_edad_genero
 from classification.emotion import reconocer_emocion
 from segmentation.segmentation import segmentar_productos
@@ -143,7 +144,7 @@ def main():
             if frame_counts[cam_id] % DETECTION_EVERY_N_FRAME == 0:
                 frame_proc = cv2.resize(frame, (PROCESS_WIDTH, PROCESS_HEIGHT))
                 detecciones = detectar_personas(frame_proc)
-                personas = actualizar_tracker(detecciones, frame_proc)
+                personas = actualizar_tracker(detecciones, frame_proc, cam_id)
                 with boxes_lock:
                     current_boxes[cam_id] = personas
 
