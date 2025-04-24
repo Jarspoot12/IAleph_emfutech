@@ -19,11 +19,7 @@ def segmentar_productos(frame, conf=0.6):
     """
     # Ejecuta el detector sobre la imagen
     resultados = detector(frame, verbose=False)[0]
-    productos = [
-        {
-            "label": CLASS_NAMES[int(cls)]
-            # "confidence": float(score)
-        }
+    productos = [CLASS_NAMES[int(cls)]
         for cls, score in zip(resultados.boxes.cls, resultados.boxes.conf)
         if float(score) >= conf
     ]

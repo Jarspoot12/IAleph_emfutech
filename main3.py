@@ -1,4 +1,7 @@
-import os, sys, cv2, threading, queue, json, time
+import os, sys, cv2, threading, queue, json
+from pymongo import MongoClient
+from datetime import datetime, timezone
+
 
 # ───────── Configuración de entorno ─────────────────────────────────#─
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -31,12 +34,36 @@ lock_cache     = threading.Lock()
 
 # ───────── Hilo de clasificación de atributos y segmentación ────────
 def ageemo_worker():
-    while True:
-        cam_id, persona, frame = ageemo_queue.get()
-        x1, y1, x2, y2 = map(int, persona["bbox"])
-        roi_rgb = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2RGB)
-        roi_in  = cv2.resize(roi_rgb, (112,112))
 
+    # Configuración de la conexión a MongoDB
+    connection_string = "mongodb+srv://ialeph:ialeph11@ialeph.yy6gxxd.mongodb.net/?retryWrites=true&w=majority&appName=IAleph"
+    client = MongoClient(connection_string)
+    ialeph_db = client["IAleph"]
+    collection = ialeph_db["ialeph_main"]
+
+    while True:
+        registros = []
+        cam_id, persona, frame = ageemo_queue.get()
+        x1,y1,x2,y2 = map(int, persona["bbox"])
+
+        # Asegurar que el bbox esté dentro de límites
+        h, w = frame.shape[:2]
+        x1, x2 = max(0, min(x1, w)), max(0, min(x2, w))
+        y1, y2 = max(0, min(y1, h)), max(0, min(y2, h))
+
+        # Si no hay área, saltar
+        if x2 <= x1 or y2 <= y1:
+            ageemo_queue.task_done()
+            continue
+
+        roi = frame[y1:y2, x1:x2]
+        if roi.size == 0:
+            ageemo_queue.task_done()
+            continue
+
+        # Convertir a RGB y seguir con tu pipeline
+        roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+        roi_in  = cv2.resize(roi_rgb, (112,112))
         try:
             edad, genero = clasificar_edad_genero(roi_in)
         except:
@@ -48,23 +75,32 @@ def ageemo_worker():
 
         productos = segmentar_productos(roi_rgb, conf=0.65)
 
+        ts = datetime.now(timezone.utc).isoformat()
         registro = {
-            "camara": cam_id,
-            "id": persona["id"],
-            "bbox": persona["bbox"],
-            "edad": edad,
-            "genero": genero,
-            "emocion": emocion,
+            "camara":    cam_id,
+            "id":        persona["id"],
+            "bbox":      persona["bbox"],
+            "edad":      edad,
+            "genero":    genero,
+            "emocion":   emocion,
             "productos": productos,
-            "timestamp": time.time()
+            "timestamp": ts
         }
+        registros.append(registro)
         print(json.dumps(registro))
 
+        if registros:
+            try:
+                collection.insert_many(registros)
+            except Exception as e:
+                print("Error insertando batch en Mongo:", e)
+
+        # se sigue guardando en person_cache
         with lock_cache:
             person_cache[cam_id][persona["id"]] = {
-                "edad": edad,
-                "genero": genero,
-                "emocion": emocion,
+                "edad":      edad,
+                "genero":    genero,
+                "emocion":   emocion,
                 "productos": productos
             }
         ageemo_queue.task_done()
@@ -138,7 +174,7 @@ def main():
                 with lock_cache:
                     info = person_cache[cam_id].get(p["id"])
                 if info:
-                    prod_txt = ",".join(it["label"] for it in info["productos"]) or "-"
+                    prod_txt = ",".join(info["productos"]) or "-"
                     label = f"ID:{p['id']} {info['genero']} {info['edad']} {info['emocion']} {prod_txt}"
                 else:
                     label = f"ID:{p['id']} ..."
