@@ -13,6 +13,7 @@ sys.path.append(os.path.join(current_dir, "tracking", "fast-reid"))
 from detectors.yolov8m          import detectar_personas
 from tracking.tracker_deepface  import actualizar_tracker, enqueue_embed_job
 from classification.age_gender  import clasificar_edad_genero
+from classification.custom_gender_classifier import clasificar_genero_latino
 from classification.emotion     import reconocer_emocion
 from segmentation.segmentation  import segmentar_productos
 
@@ -22,7 +23,7 @@ PROC_W,    PROC_H      = 640, 480
 DETECT_EVERY_N_FRAME   = 3       # YOLO cada 3 frames
 CLASSIFY_EVERY_N_FRAME = 30      # clasificación y segmentación cada 30 frames
 PERSISTENCE_FRAMES     = 30      # persistencia de bbox sin detección
-CAMERAS                = [0, 2]
+CAMERAS                = [2, 4]
 
 # ───────── Estructuras compartidas ───────────────────────────────────
 ageemo_queue   = queue.Queue()       # ilimitada
@@ -65,9 +66,12 @@ def ageemo_worker():
         roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
         roi_in  = cv2.resize(roi_rgb, (112,112))
         try:
-            edad, genero = clasificar_edad_genero(roi_in)
+            edad, _ = clasificar_edad_genero(roi_in)
         except:
-            edad, genero = "-", "-"
+            edad = "-"
+
+        # Género ahora con tu modelo fine-tuned
+        genero = clasificar_genero_latino(roi)
         try:
             emocion = reconocer_emocion(roi_in) or "-"
         except:
@@ -175,7 +179,7 @@ def main():
                     info = person_cache[cam_id].get(p["id"])
                 if info:
                     prod_txt = ",".join(info["productos"]) or "-"
-                    label = f"ID:{p['id']} {info['genero']} {info['edad']} {info['emocion']} {prod_txt}"
+                    label = f"ID:{p['id']} {info['genero']} {info['edad']} {prod_txt}"
                 else:
                     label = f"ID:{p['id']} ..."
                 cv2.putText(frame_cap, label, (x1, y1-10),

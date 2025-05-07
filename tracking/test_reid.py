@@ -12,7 +12,7 @@ fastreid_path = os.path.join(current_dir, "fast-reid")
 sys.path.append(fastreid_path)
 
 # Importar clase del módulo personalizado
-from reid_model import FastReIDModel
+from tracking.reid_model_fast import FastReIDModel
 # Inicializar modelo
 config_path = os.path.join(current_dir, "fast-reid", "configs", "Market1501", "AGW_R50.yml")
 # Construir la ruta absoluta a los pesos; asegúrate que el archivo se encuentre en esa ruta

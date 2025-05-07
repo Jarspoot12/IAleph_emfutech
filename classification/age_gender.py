@@ -1,3 +1,5 @@
+# después de echar a andar el modelo custom_age_classifier.py, puedo filtrar la salida de género y solo quedarme con la edad
+
 import os
 # Filtra los mensajes INFO y WARNING de TensorFlow
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -17,7 +19,7 @@ def clasificar_edad_genero(face_img):
       - genero dominante: Género predicho (o 'Desconocido' si no se detecta).
     """
     try:
-        result = DeepFace.analyze(face_img, actions=['age', 'gender'], enforce_detection=False)  
+        result = DeepFace.analyze(face_img, actions=['age', 'gender'], enforce_detection=False)  # cambiamos el forzado de la detección
         # Si DeepFace devuelve una lista, tomar el primer elemento
         if isinstance(result, list):
             result = result[0]
