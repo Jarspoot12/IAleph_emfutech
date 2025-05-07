@@ -5,3 +5,5 @@ tracking/market_bot_R50-ibn.pth
 tracking/market_bot_R50.pth
 tracking/market_agw_R50.pth
 classification/fairface_database
+classification/clasificador_genero_latino_robust.h5
+segmentation/dataset_productos
