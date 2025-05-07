@@ -11,3 +11,7 @@ Para mi uso personal:
 2. Estoy usando el tracking de deepface y deepsort con la lógica del re id tracking, que es una alternativa al archivo tracker_fastreid.py, el cual se sospecha presenta problemas al crear los embeddings.
 3. Todo el flujo de trabajo se concentra en el main, donde importo los módulos anteriores para ser usados en mi pipeline.
 
+## Modelos
+Este es el enlace donde se encuentran los modelos usados: https://drive.google.com/drive/folders/1ULuiaeUdWgiIl0iKiQA1FXQEH1cU40YA?usp=sharing
+
+
