@@ -2,7 +2,6 @@ import os, sys, cv2, threading, queue, json
 from pymongo import MongoClient
 from datetime import datetime, timezone
 
-
 # ───────── Configuración de entorno ─────────────────────────────────#─
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -27,7 +26,7 @@ CAMERAS                = [2, 4]
 
 # ───────── Estructuras compartidas ───────────────────────────────────
 ageemo_queue   = queue.Queue()       # ilimitada
-person_cache   = {}                  # {cam_id: {gid: info}}
+person_cache   = {}                  # {cam_id: {gid: info_dict}}
 frame_counter  = {}
 last_personas  = {}
 last_det_frame = {}
@@ -35,25 +34,22 @@ lock_cache     = threading.Lock()
 
 # ───────── Hilo de clasificación de atributos y segmentación ────────
 def ageemo_worker():
-
-    # Configuración de la conexión a MongoDB
+    # Conexión a MongoDB
     connection_string = "mongodb+srv://ialeph:ialeph11@ialeph.yy6gxxd.mongodb.net/?retryWrites=true&w=majority&appName=IAleph"
     client = MongoClient(connection_string)
     ialeph_db = client["IAleph"]
     collection = ialeph_db["ialeph_main"]
 
     while True:
-        registros = []
         cam_id, persona, frame = ageemo_queue.get()
-        x1,y1,x2,y2 = map(int, persona["bbox"])
+        registros = []
 
-        # Asegurar que el bbox esté dentro de límites
+        # Extraer bbox
+        x1,y1,x2,y2 = map(int, persona["bbox"])
         h, w = frame.shape[:2]
         x1, x2 = max(0, min(x1, w)), max(0, min(x2, w))
         y1, y2 = max(0, min(y1, h)), max(0, min(y2, h))
-
-        # Si no hay área, saltar
-        if x2 <= x1 or y2 <= y1:
+        if x2<=x1 or y2<=y1:
             ageemo_queue.task_done()
             continue
 
@@ -62,23 +58,41 @@ def ageemo_worker():
             ageemo_queue.task_done()
             continue
 
-        # Convertir a RGB y seguir con tu pipeline
+        # Preparar para edad y emoción
         roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
         roi_in  = cv2.resize(roi_rgb, (112,112))
-        try:
-            edad, _ = clasificar_edad_genero(roi_in)
-        except:
-            edad = "-"
 
-        # Género ahora con tu modelo fine-tuned
-        genero = clasificar_genero_latino(roi)
-        try:
-            emocion = reconocer_emocion(roi_in) or "-"
-        except:
-            emocion = "-"
+        # 1) Consultar cache previa
+        with lock_cache:
+            cam_cache = person_cache.setdefault(cam_id, {})
+            info = cam_cache.get(persona["id"])
 
+        # 2) Si no existe, calculamos edad, género y emoción
+        if info is None:
+            # Edad
+            try:
+                edad, _ = clasificar_edad_genero(roi_in)
+            except:
+                edad = "-"
+            # Género
+            genero = clasificar_genero_latino(roi)
+            # Emoción
+            try:
+                emocion = reconocer_emocion(roi_in) or "-"
+            except:
+                emocion = "-"
+            # Crear el dict inicial
+            info = {"edad": edad, "genero": genero, "emocion": emocion}
+        else:
+            # Reutilizar valores ya almacenados
+            edad    = info["edad"]
+            genero  = info["genero"]
+            emocion = info["emocion"]
+
+        # 3) Siempre recalculamos productos
         productos = segmentar_productos(roi_rgb, conf=0.65)
 
+        # 4) Formar registro JSON usando valores fijos + nuevos productos
         ts = datetime.now(timezone.utc).isoformat()
         registro = {
             "camara":    cam_id,
@@ -93,23 +107,25 @@ def ageemo_worker():
         registros.append(registro)
         print(json.dumps(registro))
 
+        # 5) Insertar en MongoDB
         if registros:
             try:
                 collection.insert_many(registros)
             except Exception as e:
                 print("Error insertando batch en Mongo:", e)
 
-        # se sigue guardando en person_cache
+        # 6) Actualizar cache: preservando edad/género/emoción, actualizando productos
         with lock_cache:
-            person_cache[cam_id][persona["id"]] = {
-                "edad":      edad,
-                "genero":    genero,
-                "emocion":   emocion,
+            cam_cache[persona["id"]] = {
+                "edad":      info["edad"],
+                "genero":    info["genero"],
+                "emocion":   info["emocion"],
                 "productos": productos
             }
+
         ageemo_queue.task_done()
 
-# lanzar dos hilos para clasificación
+# Lanzar hilos
 for _ in range(2):
     threading.Thread(target=ageemo_worker, daemon=True).start()
 
@@ -142,14 +158,13 @@ def main():
 
             frame_cap  = cv2.flip(frame_cap, 1)
             frame_proc = cv2.resize(frame_cap, (PROC_W, PROC_H))
-            frame_counter[cam_id] += 1
-            fcount = frame_counter[cam_id]
+            fcount = frame_counter[cam_id] = frame_counter[cam_id] + 1
 
-            # detección cada DETECT_EVERY_N_FRAME frames
+            # Detección
             run_det = (fcount % DETECT_EVERY_N_FRAME == 0)
             dets = detectar_personas(frame_proc) if run_det else []
 
-            # tracking y persistencia
+            # Tracking y persistencia
             if run_det and dets:
                 personas = actualizar_tracker(dets, frame_proc, cam_id)
                 last_personas[cam_id]  = personas
@@ -160,21 +175,21 @@ def main():
                 else:
                     personas = []
 
-            # re-ID embedding jobs
+            # Encolar embedding
             for p in personas:
                 enqueue_embed_job(cam_id, p, frame_proc, fcount)
 
-            # clasificación y segmentación cada CLASSIFY_EVERY_N_FRAME
+            # Clasificación / segmentación cada N frames
             if fcount % CLASSIFY_EVERY_N_FRAME == 0 and personas:
                 for p in personas:
                     ageemo_queue.put((cam_id, p, frame_proc))
 
-            # dibujo de cajas y etiquetas
+            # Dibujo de cajas y etiquetas
             sx, sy = CAPTURE_W/PROC_W, CAPTURE_H/PROC_H
             for p in personas:
                 x1, y1, x2, y2 = [int(v*sx) if i%2==0 else int(v*sy)
-                                 for i, v in enumerate(p["bbox"]) ]
-                cv2.rectangle(frame_cap, (x1,y1), (x2,y2), (0,255,0), 2)
+                                 for i, v in enumerate(p["bbox"])]
+                cv2.rectangle(frame_cap, (x1, y1), (x2, y2), (0,255,0), 2)
                 with lock_cache:
                     info = person_cache[cam_id].get(p["id"])
                 if info:
@@ -196,4 +211,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

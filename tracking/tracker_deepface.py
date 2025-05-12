@@ -1,17 +1,24 @@
+"""La función actualizar_tracker de tracker_deepface asigna un persona["id"] 
+global que persiste incluso al cambiar de cámara, gracias a DeepSORT + DeepFace embeddings.
+ Este gid es el que usas aquí para cachear la edad/género/emoción.
+"""
+
 from collections import deque
 import cv2, threading, queue
 from deepface import DeepFace
 from sklearn.metrics.pairwise import cosine_similarity
 from deep_sort_realtime.deepsort_tracker import DeepSort
+from mtcnn import MTCNN
 
 # ─── parámetros ───────────────────────────────────────────────────────
 SIM_THRESH       = 0.8       # más estricto
 DS_N_INIT        = 1
 DS_MAX_AGE       = 10          # 3× DETECT interval
 DS_MAX_COS_DIST  = 0.25
-MIN_FACE_PIXELS  = 40*40
-RECHECK_EMBED    = 40         # re‑embeddings cada 60 frames
+MIN_FACE_PIXELS  = 10*10
+RECHECK_EMBED    = 40         # re‑embeddings cada 40 frames
 STALE_FRAMES = 15          # ≈ medio segundo con detector cada 3 frames
+_mtcnn = MTCNN()
 
 
 
@@ -40,18 +47,31 @@ def _embed_worker():
     global next_gid, frame_global
     while True:
         cam_id, persona, frame = embed_queue.get()
+        # 1) recorta la zona aproximada
         x1, y1, x2, y2 = map(int, persona["bbox"])
-        head = frame[y1:y2, x1:x2]
+        patch = frame[y1:y2, x1:x2]
+
+        # 2) detecta solo la cara dentro de ese parcho
+        faces = _mtcnn.detect_faces(patch)
+        if not faces:
+            embed_queue.task_done()
+            continue
+
+        # 3) elige la cara con más confianza
+        face_box = max(faces, key=lambda f: f['confidence'])['box']
+        fx, fy, fw, fh = face_box
+        face_crop = patch[fy:fy+fh, fx:fx+fw]
+        
 
         # 1) Filtrar recortes pequeños
-        if head.size < MIN_FACE_PIXELS:
+        if face_crop.size < MIN_FACE_PIXELS:
             embed_queue.task_done()
             continue
 
         # 2) Embedding con ArcFace
         try:
             rep = DeepFace.represent(
-                    head, model_name="ArcFace",
+                    face_crop, model_name="ArcFace",
                     enforce_detection=True)[0]["embedding"]
         except Exception:
             embed_queue.task_done()

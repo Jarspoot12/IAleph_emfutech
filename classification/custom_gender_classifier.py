@@ -19,7 +19,7 @@ def clasificar_genero_latino(img_bgr):
 
 if __name__ == "__main__":
     # Ruta fija a la imagen de prueba
-    img_path = "/home/jared/Desktop/IAleph/classification/fairface_database/fairface_latino/Female/379_f.jpg"
+    img_path = "/home/jared/Desktop/IAleph/classification/fairface_database/fairface_latino/Female/IMG_1551.jpg"
     
     # Carga y chequeo
     img = cv2.imread(img_path)
